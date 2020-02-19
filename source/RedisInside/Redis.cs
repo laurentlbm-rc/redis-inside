@@ -6,7 +6,6 @@ using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using RedisInside.Executables;
 
 namespace RedisInside
 {
@@ -24,12 +23,17 @@ namespace RedisInside
             configuration?.Invoke(_config);
 
             var isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-            
-            var assembly = Assembly.GetExecutingAssembly();
-            var redisServerPath = Path.Combine(Path.GetDirectoryName(assembly.Location), "Executables", isWindows ? "redis-server.exe" : "redis-server");
+
+            var binLocator = new BinaryLocator();
+            var redisExecutable = Path.Combine(binLocator.Folder, isWindows ? "redis-server.exe" : "redis-server");
+
+            if (!isWindows)
+            {
+                MakeBinaryExecutable(redisExecutable);
+            }
 
             var windowsArgs = isWindows ? "--persistence-available no" : "";
-            var processStartInfo = new ProcessStartInfo(redisServerPath)
+            var processStartInfo = new ProcessStartInfo(redisExecutable)
             {
                 UseShellExecute = false,
                 Arguments = $"--port {_config.port} --bind 127.0.0.1 {windowsArgs}",
@@ -44,6 +48,18 @@ namespace RedisInside
             _process.ErrorDataReceived += (sender, eventargs) => _config.logger.Invoke(eventargs.Data);
             _process.OutputDataReceived += (sender, eventargs) => _config.logger.Invoke(eventargs.Data);
             _process.BeginOutputReadLine();
+        }
+
+        private void MakeBinaryExecutable(string path)
+        {
+            //when on linux or osx we must set the executeble flag on mongo binarys
+            var p = Process.Start("chmod", $"+x {path}");
+            p.WaitForExit();
+
+            if (p.ExitCode != 0)
+            {
+                throw new IOException($"Could not set executable bit for {path}");
+            }
         }
 
         public EndPoint Endpoint
@@ -67,15 +83,15 @@ namespace RedisInside
                 {
                     _process.Dispose();
                 }
-                
+
             }
             catch (Exception ex)
             {
                 _config.logger.Invoke(ex.ToString());
             }
-            
+
             _disposed = true;
-            
+
         }
 
         ~Redis()
